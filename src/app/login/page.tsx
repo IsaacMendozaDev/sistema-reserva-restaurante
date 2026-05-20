@@ -24,6 +24,13 @@ export default function LoginPage() {
     let active = true;
 
     async function redirectAuthenticatedUser() {
+      const params = new URLSearchParams(window.location.search);
+
+      if (params.get("error") === "oauth_callback") {
+        setError("No se pudo completar el inicio de sesión con Google. Inténtalo nuevamente.");
+        return;
+      }
+
       const supabase = createClient();
       const { data } = await supabase.auth.getUser();
 
@@ -72,7 +79,7 @@ export default function LoginPage() {
       const { error: signInError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/dashboard`,
+          redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
         },
       });
 
