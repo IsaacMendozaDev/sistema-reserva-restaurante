@@ -4,11 +4,16 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProtectedRoute } from "@/components/layout/protected-route";
+import {
+  ReservationNotice,
+  type ReservationNoticeValue,
+} from "@/components/reservas/reservation-notice";
 import { ReservaForm, type ReservaFormPayload } from "@/components/reservas/reserva-form";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { LoadingState } from "@/components/ui/loading-state";
+import { enviarConfirmacionReserva } from "@/lib/reservas/confirmacion-email";
 import {
   cancelReserva,
   fetchClienteById,
@@ -17,7 +22,10 @@ import {
   updateReserva,
 } from "@/lib/supabase/queries";
 import { normalizeError } from "@/lib/utils";
-import type { Cliente, Mesa, Reserva } from "@/types/database";
+import type { Cliente, DbId, Mesa, Reserva } from "@/types/database";
+
+const EMAIL_WARNING_MESSAGE =
+  "La reserva fue guardada, pero no se pudo enviar el correo de confirmación.";
 
 export default function EditarReservaPage() {
   return (
@@ -38,6 +46,7 @@ function EditarReservaContent() {
   const [mesa, setMesa] = useState<Mesa | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<ReservationNoticeValue | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -78,7 +87,65 @@ function EditarReservaContent() {
     };
   }, [idReserva]);
 
+  async function sendModifiedReservationEmail({
+    idCliente,
+    idMesa,
+    fecha,
+    hora,
+    numPersonas,
+  }: {
+    idCliente: DbId;
+    idMesa: DbId;
+    fecha: string;
+    hora: string;
+    numPersonas: number;
+  }) {
+    try {
+      const [clienteActualizado, mesaActualizada] = await Promise.all([
+        fetchClienteById(idCliente),
+        fetchMesaById(idMesa),
+      ]);
+
+      if (!clienteActualizado?.correo_electronico || !clienteActualizado.nombre || !mesaActualizada?.nombre) {
+        setNotice({
+          type: "warning",
+          message: EMAIL_WARNING_MESSAGE,
+        });
+        return;
+      }
+
+      const result = await enviarConfirmacionReserva({
+        correoCliente: clienteActualizado.correo_electronico,
+        nombreCliente: clienteActualizado.nombre,
+        fecha,
+        hora,
+        nombreMesa: mesaActualizada.nombre,
+        numPersonas,
+        tipo: "modificada",
+      });
+
+      setNotice(
+        result.success
+          ? {
+              type: "success",
+              message: "Reserva modificada correctamente y correo de actualización enviado.",
+            }
+          : {
+              type: "warning",
+              message: EMAIL_WARNING_MESSAGE,
+            },
+      );
+    } catch {
+      setNotice({
+        type: "warning",
+        message: EMAIL_WARNING_MESSAGE,
+      });
+    }
+  }
+
   async function handleUpdate(payload: ReservaFormPayload) {
+    setNotice(null);
+
     if (!payload.id_cliente) {
       throw new Error("Selecciona un cliente antes de guardar.");
     }
@@ -92,7 +159,13 @@ function EditarReservaContent() {
       estado: payload.estado,
     });
 
-    router.push("/reservas");
+    await sendModifiedReservationEmail({
+      idCliente: payload.id_cliente,
+      idMesa: payload.id_mesa,
+      fecha: payload.fecha,
+      hora: payload.hora,
+      numPersonas: payload.num_personas,
+    });
   }
 
   async function handleCancel() {
@@ -118,6 +191,7 @@ function EditarReservaContent() {
       </div>
 
       {error ? <ErrorMessage message={error} /> : null}
+      {notice ? <ReservationNotice notice={notice} /> : null}
       {loading ? <LoadingState text="Cargando reserva..." /> : null}
 
       {!loading && !reserva ? (

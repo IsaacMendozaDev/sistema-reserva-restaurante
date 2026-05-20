@@ -1,11 +1,26 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProtectedRoute } from "@/components/layout/protected-route";
+import {
+  ReservationNotice,
+  type ReservationNoticeValue,
+} from "@/components/reservas/reservation-notice";
 import { ReservaForm, type ReservaFormPayload } from "@/components/reservas/reserva-form";
 import { Card } from "@/components/ui/card";
-import { createCliente, createReserva, getCurrentUser } from "@/lib/supabase/queries";
+import { enviarConfirmacionReserva } from "@/lib/reservas/confirmacion-email";
+import {
+  createCliente,
+  createReserva,
+  fetchClienteById,
+  fetchMesaById,
+  getCurrentUser,
+} from "@/lib/supabase/queries";
+import type { DbId } from "@/types/database";
+
+const EMAIL_WARNING_MESSAGE =
+  "La reserva fue guardada, pero no se pudo enviar el correo de confirmación.";
 
 export default function NuevaReservaPage() {
   return (
@@ -18,9 +33,66 @@ export default function NuevaReservaPage() {
 }
 
 function NuevaReservaContent() {
-  const router = useRouter();
+  const [notice, setNotice] = useState<ReservationNoticeValue | null>(null);
+
+  async function sendCreatedReservationEmail({
+    idCliente,
+    idMesa,
+    fecha,
+    hora,
+    numPersonas,
+  }: {
+    idCliente: DbId;
+    idMesa: DbId;
+    fecha: string;
+    hora: string;
+    numPersonas: number;
+  }) {
+    try {
+      const [cliente, mesa] = await Promise.all([
+        fetchClienteById(idCliente),
+        fetchMesaById(idMesa),
+      ]);
+
+      if (!cliente?.correo_electronico || !cliente.nombre || !mesa?.nombre) {
+        setNotice({
+          type: "warning",
+          message: EMAIL_WARNING_MESSAGE,
+        });
+        return;
+      }
+
+      const result = await enviarConfirmacionReserva({
+        correoCliente: cliente.correo_electronico,
+        nombreCliente: cliente.nombre,
+        fecha,
+        hora,
+        nombreMesa: mesa.nombre,
+        numPersonas,
+        tipo: "creada",
+      });
+
+      setNotice(
+        result.success
+          ? {
+              type: "success",
+              message: "Reserva creada correctamente y correo de confirmación enviado.",
+            }
+          : {
+              type: "warning",
+              message: EMAIL_WARNING_MESSAGE,
+            },
+      );
+    } catch {
+      setNotice({
+        type: "warning",
+        message: EMAIL_WARNING_MESSAGE,
+      });
+    }
+  }
 
   async function handleCreate(payload: ReservaFormPayload) {
+    setNotice(null);
     const user = await getCurrentUser();
 
     if (!user) {
@@ -48,7 +120,13 @@ function NuevaReservaContent() {
       estado: "confirmada",
     });
 
-    router.push("/reservas");
+    await sendCreatedReservationEmail({
+      idCliente,
+      idMesa: payload.id_mesa,
+      fecha: payload.fecha,
+      hora: payload.hora,
+      numPersonas: payload.num_personas,
+    });
   }
 
   return (
@@ -60,6 +138,8 @@ function NuevaReservaContent() {
           La reserva se asocia siempre a un id_cliente y al administrador autenticado.
         </p>
       </div>
+
+      {notice ? <ReservationNotice notice={notice} /> : null}
 
       <Card className="p-6 sm:p-8">
         <ReservaForm mode="create" onSubmit={handleCreate} />
