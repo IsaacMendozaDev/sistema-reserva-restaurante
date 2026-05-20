@@ -1,4 +1,6 @@
-export type TipoConfirmacionReserva = "creada" | "modificada";
+import type { VistaReserva } from "@/types/database";
+
+export type TipoConfirmacionReserva = "creada" | "modificada" | "cancelada";
 
 export interface ConfirmacionReservaPayload {
   correoCliente: string;
@@ -55,4 +57,26 @@ export async function enviarConfirmacionReserva(
       error: error instanceof Error ? error.message : "No se pudo enviar el correo.",
     };
   }
+}
+
+export async function enviarConfirmacionReservaDesdeVista(
+  reserva: VistaReserva,
+  tipo: TipoConfirmacionReserva,
+): Promise<ConfirmacionReservaResult> {
+  if (!reserva.correo_electronico) {
+    return {
+      success: false,
+      error: "La reserva no tiene correo electrónico de cliente.",
+    };
+  }
+
+  return enviarConfirmacionReserva({
+    correoCliente: reserva.correo_electronico,
+    nombreCliente: reserva.nombre_cliente,
+    fecha: reserva.fecha,
+    hora: reserva.hora,
+    nombreMesa: reserva.nombre_mesa,
+    numPersonas: reserva.num_personas,
+    tipo,
+  });
 }

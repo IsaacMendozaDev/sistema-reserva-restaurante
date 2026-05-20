@@ -1,6 +1,6 @@
 import { Resend } from "resend";
 
-type TipoConfirmacion = "creada" | "modificada";
+type TipoConfirmacion = "creada" | "modificada" | "cancelada";
 
 interface ConfirmacionReservaBody {
   correoCliente: string;
@@ -51,7 +51,7 @@ function parseBody(body: unknown): ConfirmacionReservaBody | null {
     typeof hora !== "string" ||
     typeof nombreMesa !== "string" ||
     typeof numPersonas !== "number" ||
-    (tipo !== "creada" && tipo !== "modificada")
+    (tipo !== "creada" && tipo !== "modificada" && tipo !== "cancelada")
   ) {
     return null;
   }
@@ -84,9 +84,8 @@ function parseBody(body: unknown): ConfirmacionReservaBody | null {
 }
 
 function buildEmailContent(payload: ConfirmacionReservaBody) {
-  const accion = payload.tipo === "creada" ? "creada" : "modificada";
-  const asunto =
-    payload.tipo === "creada" ? "Confirmación de reserva" : "Actualización de reserva";
+  const message = getMessage(payload.tipo);
+  const asunto = getSubject(payload.tipo);
 
   const nombreCliente = escapeHtml(payload.nombreCliente);
   const fecha = escapeHtml(payload.fecha);
@@ -97,7 +96,7 @@ function buildEmailContent(payload: ConfirmacionReservaBody) {
   const text = [
     `Hola ${payload.nombreCliente},`,
     "",
-    `Tu reserva fue ${accion} correctamente.`,
+    message,
     "",
     `Fecha: ${payload.fecha}`,
     `Hora: ${payload.hora}`,
@@ -111,7 +110,7 @@ function buildEmailContent(payload: ConfirmacionReservaBody) {
     <div style="font-family: Arial, sans-serif; color: #1c1917; line-height: 1.6;">
       <h1 style="color: #cf5b40; margin-bottom: 8px;">${asunto}</h1>
       <p>Hola <strong>${nombreCliente}</strong>,</p>
-      <p>Tu reserva fue <strong>${accion}</strong> correctamente.</p>
+      <p>${escapeHtml(message)}</p>
       <div style="background: #fbf7f2; border: 1px solid #e7e0d8; border-radius: 12px; padding: 16px; margin: 20px 0;">
         <p style="margin: 0 0 8px;"><strong>Fecha:</strong> ${fecha}</p>
         <p style="margin: 0 0 8px;"><strong>Hora:</strong> ${hora}</p>
@@ -123,6 +122,30 @@ function buildEmailContent(payload: ConfirmacionReservaBody) {
   `;
 
   return { asunto, html, text };
+}
+
+function getSubject(tipo: TipoConfirmacion) {
+  if (tipo === "creada") {
+    return "Confirmación de reserva";
+  }
+
+  if (tipo === "modificada") {
+    return "Actualización de reserva";
+  }
+
+  return "Cancelación de reserva";
+}
+
+function getMessage(tipo: TipoConfirmacion) {
+  if (tipo === "creada") {
+    return "Tu reserva fue creada correctamente.";
+  }
+
+  if (tipo === "modificada") {
+    return "Tu reserva fue modificada correctamente.";
+  }
+
+  return "Te informamos que tu reserva ha sido cancelada correctamente.";
 }
 
 export async function POST(request: Request) {

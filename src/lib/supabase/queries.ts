@@ -91,6 +91,18 @@ export async function fetchReservas(): Promise<VistaReserva[]> {
   return (data ?? []) as VistaReserva[];
 }
 
+export async function fetchVistaReservaById(idReserva: DbId): Promise<VistaReserva | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("vista_reservas")
+    .select("*")
+    .eq("id_reserva", idReserva)
+    .maybeSingle();
+
+  throwIfError(error);
+  return (data ?? null) as VistaReserva | null;
+}
+
 export async function fetchReservaById(idReserva: DbId): Promise<Reserva | null> {
   const supabase = createClient();
   const { data, error } = await supabase

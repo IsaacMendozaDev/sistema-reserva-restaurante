@@ -5,6 +5,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarPlus, Filter } from "lucide-react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProtectedRoute } from "@/components/layout/protected-route";
+import {
+  ReservationNotice,
+  type ReservationNoticeValue,
+} from "@/components/reservas/reservation-notice";
 import { ReservaTable } from "@/components/reservas/reserva-table";
 import { buttonStyles } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,9 +16,13 @@ import { ErrorMessage } from "@/components/ui/error-message";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading-state";
 import { Select } from "@/components/ui/select";
-import { cancelReserva, fetchReservas } from "@/lib/supabase/queries";
+import { enviarConfirmacionReservaDesdeVista } from "@/lib/reservas/confirmacion-email";
+import { cancelReserva, fetchReservas, fetchVistaReservaById } from "@/lib/supabase/queries";
 import { normalizeError } from "@/lib/utils";
 import type { ReservaEstado, VistaReserva } from "@/types/database";
+
+const CANCEL_EMAIL_WARNING_MESSAGE =
+  "La reserva fue cancelada, pero no se pudo enviar el correo de cancelación.";
 
 export default function ReservasPage() {
   return (
@@ -33,6 +41,7 @@ function ReservasContent() {
   const [estadoFilter, setEstadoFilter] = useState<ReservaEstado | "todas">("todas");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<ReservationNoticeValue | null>(null);
 
   const filteredReservas = useMemo(() => {
     const clienteTerm = clienteFilter.trim().toLowerCase();
@@ -98,12 +107,44 @@ function ReservasContent() {
       return;
     }
 
+    setNotice(null);
+    setError(null);
+
     try {
       await cancelReserva(idReserva);
-      await loadReservas();
     } catch (caughtError) {
       setError(normalizeError(caughtError, "No se pudo cancelar la reserva."));
+      return;
     }
+
+    try {
+      const reservaCancelada = await fetchVistaReservaById(idReserva);
+
+      if (!reservaCancelada) {
+        throw new Error("No se encontró la reserva cancelada.");
+      }
+
+      const result = await enviarConfirmacionReservaDesdeVista(reservaCancelada, "cancelada");
+
+      setNotice(
+        result.success
+          ? {
+              type: "success",
+              message: "Reserva cancelada y correo enviado correctamente.",
+            }
+          : {
+              type: "warning",
+              message: CANCEL_EMAIL_WARNING_MESSAGE,
+            },
+      );
+    } catch {
+      setNotice({
+        type: "warning",
+        message: CANCEL_EMAIL_WARNING_MESSAGE,
+      });
+    }
+
+    await loadReservas();
   }
 
   return (
@@ -124,6 +165,7 @@ function ReservasContent() {
       </div>
 
       {error ? <ErrorMessage message={error} /> : null}
+      {notice ? <ReservationNotice notice={notice} /> : null}
 
       <Card className="p-5">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-stone-600">

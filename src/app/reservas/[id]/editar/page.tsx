@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProtectedRoute } from "@/components/layout/protected-route";
@@ -13,12 +13,16 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorMessage } from "@/components/ui/error-message";
 import { LoadingState } from "@/components/ui/loading-state";
-import { enviarConfirmacionReserva } from "@/lib/reservas/confirmacion-email";
+import {
+  enviarConfirmacionReserva,
+  enviarConfirmacionReservaDesdeVista,
+} from "@/lib/reservas/confirmacion-email";
 import {
   cancelReserva,
   fetchClienteById,
   fetchMesaById,
   fetchReservaById,
+  fetchVistaReservaById,
   updateReserva,
 } from "@/lib/supabase/queries";
 import { normalizeError } from "@/lib/utils";
@@ -26,6 +30,8 @@ import type { Cliente, DbId, Mesa, Reserva } from "@/types/database";
 
 const EMAIL_WARNING_MESSAGE =
   "La reserva fue guardada, pero no se pudo enviar el correo de confirmación.";
+const CANCEL_EMAIL_WARNING_MESSAGE =
+  "La reserva fue cancelada, pero no se pudo enviar el correo de cancelación.";
 
 export default function EditarReservaPage() {
   return (
@@ -39,7 +45,6 @@ export default function EditarReservaPage() {
 
 function EditarReservaContent() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const idReserva = params.id;
   const [reserva, setReserva] = useState<Reserva | null>(null);
   const [cliente, setCliente] = useState<Cliente | null>(null);
@@ -175,8 +180,39 @@ function EditarReservaContent() {
       return;
     }
 
+    setNotice(null);
     await cancelReserva(idReserva);
-    router.push("/reservas");
+
+    try {
+      const reservaCancelada = await fetchVistaReservaById(idReserva);
+
+      if (!reservaCancelada) {
+        throw new Error("No se encontró la reserva cancelada.");
+      }
+
+      const result = await enviarConfirmacionReservaDesdeVista(reservaCancelada, "cancelada");
+
+      setNotice(
+        result.success
+          ? {
+              type: "success",
+              message: "Reserva cancelada y correo enviado correctamente.",
+            }
+          : {
+              type: "warning",
+              message: CANCEL_EMAIL_WARNING_MESSAGE,
+            },
+      );
+    } catch {
+      setNotice({
+        type: "warning",
+        message: CANCEL_EMAIL_WARNING_MESSAGE,
+      });
+    }
+
+    setReserva((currentReserva) =>
+      currentReserva ? { ...currentReserva, estado: "cancelada" } : currentReserva,
+    );
   }
 
   return (
@@ -204,6 +240,7 @@ function EditarReservaContent() {
       {!loading && reserva ? (
         <Card className="p-6 sm:p-8">
           <ReservaForm
+            key={`${reserva.id_reserva}-${reserva.estado}`}
             mode="edit"
             initialReserva={reserva}
             initialCliente={cliente}
